@@ -1,0 +1,11 @@
+{
+  "name": "aetherboard-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "start:mock": "USE_MOCK=1 node server.js",
+    "screenshots": "node scripts/capture-screenshots.mjs"
+  }
+}

@@ -1,0 +1,22 @@
+services:
+  backend:
+    build: ./backend
+    container_name: aetherboard-backend
+    environment:
+      - PORT=3000
+      - DATA_DIR=/app/data
+    volumes:
+      - ./backend/data:/app/data
+    ports:
+      - "3000:3000"
+
+  frontend:
+    build: ./frontend
+    container_name: aetherboard-frontend
+    environment:
+      - PORT=5173
+      - BACKEND_URL=http://backend:3000
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"

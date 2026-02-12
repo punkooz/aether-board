@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AetherBoard MVP</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header>
+    <h1>AetherBoard</h1>
+    <p class="subtitle">Operational command board (MVP)</p>
+  </header>
+
+  <div class="topbar">
+    <div>
+      <label for="apiBase">Backend URL</label>
+      <input id="apiBase" type="text" value="" placeholder="http://localhost:8080" />
+      <button id="saveApiBase">Save</button>
+    </div>
+    <div>
+      <button id="refreshAll">Refresh all</button>
+      <span id="statusDot" class="status-dot"></span>
+      <span id="statusText">Idle</span>
+    </div>
+  </div>
+
+  <nav class="tabs">
+    <button data-tab="board" class="active">Board</button>
+    <button data-tab="task">Task Details</button>
+    <button data-tab="agents">Agents</button>
+    <button data-tab="rooms">Room Feeds</button>
+    <button data-tab="milestones">Milestones</button>
+    <button data-tab="reviews">CEO Review Queue</button>
+  </nav>
+
+  <main>
+    <section id="tab-board" class="tab active">
+      <h2>Board by Status</h2>
+      <div class="board-grid" id="boardGrid"></div>
+    </section>
+
+    <section id="tab-task" class="tab">
+      <h2>Task Details & Comments</h2>
+      <div class="task-controls">
+        <label for="taskIdInput">Task ID</label>
+        <input id="taskIdInput" type="text" placeholder="e.g. task_123" />
+        <button id="loadTaskBtn">Load Task</button>
+      </div>
+      <div class="panel" id="taskDetailPanel">No task loaded.</div>
+      <h3>Comments</h3>
+      <ul id="taskComments" class="list"></ul>
+    </section>
+
+    <section id="tab-agents" class="tab">
+      <h2>Agent Profiles</h2>
+      <div id="agentsList" class="card-grid"></div>
+    </section>
+
+    <section id="tab-rooms" class="tab">
+      <h2>Room Feeds</h2>
+      <div class="split">
+        <aside>
+          <ul id="roomsList" class="list"></ul>
+        </aside>
+        <section>
+          <h3 id="roomFeedTitle">Select a room</h3>
+          <ul id="roomFeed" class="list"></ul>
+        </section>
+      </div>
+    </section>
+
+    <section id="tab-milestones" class="tab">
+      <h2>Milestone Updates</h2>
+      <ul id="milestonesList" class="list"></ul>
+    </section>
+
+    <section id="tab-reviews" class="tab">
+      <h2>CEO Review Queue</h2>
+      <ul id="reviewsList" class="list"></ul>
+    </section>
+  </main>
+
+  <script src="./app.js" type="module"></script>
+</body>
+</html>

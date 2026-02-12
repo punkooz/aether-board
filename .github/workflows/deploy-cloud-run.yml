@@ -1,0 +1,52 @@
+name: deploy-cloud-run
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Cloud Run service name
+        required: true
+        default: aetherboard
+      region:
+        description: GCP region
+        required: true
+        default: us-central1
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Preferred: Workload Identity Federation
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build container
+        run: |
+          gcloud builds submit . \
+            --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ inputs.service }}:${{ github.sha }}
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ inputs.service }} \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ inputs.service }}:${{ github.sha }} \
+            --region ${{ inputs.region }} \
+            --platform managed \
+            --allow-unauthenticated
+
+      - name: Show service URL
+        run: |
+          gcloud run services describe ${{ inputs.service }} \
+            --region ${{ inputs.region }} \
+            --format='value(status.url)'
