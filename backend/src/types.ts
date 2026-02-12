@@ -54,3 +54,14 @@ export interface Milestone {
   actorId: string;
   createdAt: string;
 }
+
+export interface AuditEvent {
+  id: string;
+  actorId: string;
+  actorRole: Role;
+  action: string;
+  resourceType: string;
+  resourceId?: string;
+  createdAt: string;
+  ip?: string;
+}
