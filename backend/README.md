@@ -9,7 +9,7 @@ Node.js + TypeScript + Fastify backend with local JSON file persistence.
 - Agents registry/profile
 - Rooms + messages (`common` + pod rooms)
 - Milestones feed
-- Simple role-based auth placeholder (`CEO`, `Governor`)
+- Public read endpoints + admin-token protected write endpoints
 
 ## Quick start
 
@@ -21,17 +21,21 @@ npm run dev
 
 Server defaults to `http://localhost:3000`.
 
-## Auth placeholder
+## Auth model (security patch)
 
-Set headers on requests:
+- **Read endpoints** are public (`GET` routes).
+- **Write endpoints** require an admin bearer token.
 
-- `x-role`: `CEO` or `Governor`
-- `x-user-id`: any non-empty user id
+Set env var:
 
-Policy:
+- `ADMIN_TOKEN` (required for write operations)
 
-- CEO: full access
-- Governor: read access + create comments/messages + limited task updates
+For write requests send:
+
+- `Authorization: Bearer <ADMIN_TOKEN>`
+- optional actor attribution headers:
+  - `x-role`: `CEO` or `Governor`
+  - `x-user-id`: user id for audit attribution
 
 ## Scripts
 
@@ -55,7 +59,7 @@ Policy:
 - `GET /tasks/:id/comments`
 - `POST /tasks/:id/comments`
 
-Task statuses: `backlog | in_progress | blocked | review | done`
+Task statuses: `todo | in-progress | blocked | review | done`
 
 ### Agents
 - `GET /agents`

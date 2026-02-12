@@ -18,24 +18,31 @@ const statusTransitions: Record<TaskStatus, TaskStatus[]> = {
   'done': [],
 };
 
-const parseActor = (request: FastifyRequest) => {
-  const role = request.headers['x-role'];
+const setActor = (request: FastifyRequest) => {
   const userId = request.headers['x-user-id'];
-  if ((role === 'CEO' || role === 'Governor') && typeof userId === 'string' && userId.length > 0) {
-    request.actor = { id: userId, role };
-    return;
+  const role = request.headers['x-role'];
+  const id = typeof userId === 'string' && userId.length > 0 ? userId : 'system';
+  const parsedRole: Role = role === 'Governor' ? 'Governor' : 'CEO';
+  request.actor = { id, role: parsedRole };
+};
+
+const requireAdmin = async (request: FastifyRequest, reply: FastifyReply) => {
+  setActor(request);
+  const auth = request.headers.authorization;
+  const expected = process.env.ADMIN_TOKEN;
+
+  if (!expected || expected.length < 20) {
+    return reply.code(503).send({ error: 'Admin mode unavailable: ADMIN_TOKEN not configured.' });
   }
-};
 
-const requireAnyRole = async (request: FastifyRequest, reply: FastifyReply) => {
-  parseActor(request);
-  if (!request.actor) reply.code(401).send({ error: 'Unauthorized. Provide x-role + x-user-id headers.' });
-};
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return reply.code(401).send({ error: 'Unauthorized. Bearer token required.' });
+  }
 
-const requireCEO = async (request: FastifyRequest, reply: FastifyReply) => {
-  parseActor(request);
-  if (!request.actor) return reply.code(401).send({ error: 'Unauthorized. Provide x-role + x-user-id headers.' });
-  if (request.actor.role !== 'CEO') return reply.code(403).send({ error: 'Forbidden. CEO role required.' });
+  const provided = auth.slice('Bearer '.length).trim();
+  if (provided !== expected) {
+    return reply.code(403).send({ error: 'Forbidden. Invalid admin token.' });
+  }
 };
 
 export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInstance> {
@@ -56,13 +63,13 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
 
   app.get('/health', async () => ({ ok: true }));
 
-  app.get('/tasks', { preHandler: requireAnyRole }, async (req) => {
+  app.get('/tasks', async (req) => {
     const { status } = req.query as { status?: TaskStatus };
     const all = await tasks.all();
     return status ? all.filter((t) => t.status === status) : all;
   });
 
-  app.post('/tasks', { preHandler: requireAnyRole }, async (req, reply) => {
+  app.post('/tasks', { preHandler: requireAdmin }, async (req, reply) => {
     const body = req.body as Partial<Task>;
     if (!body?.title) return reply.code(400).send({ error: 'title is required' });
     const now = nowIso();
@@ -80,14 +87,14 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return reply.code(201).send(task);
   });
 
-  app.get('/tasks/:id', { preHandler: requireAnyRole }, async (req, reply) => {
+  app.get('/tasks/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
     const task = await tasks.findById(id);
     if (!task) return reply.code(404).send({ error: 'Task not found' });
     return task;
   });
 
-  app.patch('/tasks/:id', { preHandler: requireAnyRole }, async (req, reply) => {
+  app.patch('/tasks/:id', { preHandler: requireAdmin }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as Partial<Task>;
     const existing = await tasks.findById(id);
@@ -107,14 +114,14 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return updated;
   });
 
-  app.delete('/tasks/:id', { preHandler: requireCEO }, async (req, reply) => {
+  app.delete('/tasks/:id', { preHandler: requireAdmin }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const ok = await tasks.delete(id);
     if (!ok) return reply.code(404).send({ error: 'Task not found' });
     return reply.code(204).send();
   });
 
-  app.post('/tasks/:id/transition', { preHandler: requireAnyRole }, async (req, reply) => {
+  app.post('/tasks/:id/transition', { preHandler: requireAdmin }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as { to?: TaskStatus };
     if (!body?.to) return reply.code(400).send({ error: 'to status is required' });
@@ -134,13 +141,13 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return updated;
   });
 
-  app.get('/tasks/:id/comments', { preHandler: requireAnyRole }, async (req) => {
+  app.get('/tasks/:id/comments', async (req) => {
     const { id } = req.params as { id: string };
     const all = await comments.all();
     return all.filter((c) => c.taskId === id);
   });
 
-  app.post('/tasks/:id/comments', { preHandler: requireAnyRole }, async (req, reply) => {
+  app.post('/tasks/:id/comments', { preHandler: requireAdmin }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as { body?: string };
     const task = await tasks.findById(id);
@@ -158,9 +165,9 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return reply.code(201).send(comment);
   });
 
-  app.get('/agents', { preHandler: requireAnyRole }, async () => agents.all());
+  app.get('/agents', async () => agents.all());
 
-  app.post('/agents', { preHandler: requireCEO }, async (req, reply) => {
+  app.post('/agents', { preHandler: requireAdmin }, async (req, reply) => {
     const body = req.body as Partial<AgentProfile>;
     if (!body?.name || !body?.role) return reply.code(400).send({ error: 'name and role are required' });
     const agent: AgentProfile = {
@@ -176,14 +183,14 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return reply.code(201).send(agent);
   });
 
-  app.get('/agents/:id', { preHandler: requireAnyRole }, async (req, reply) => {
+  app.get('/agents/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
     const agent = await agents.findById(id);
     if (!agent) return reply.code(404).send({ error: 'Agent not found' });
     return agent;
   });
 
-  app.patch('/agents/:id', { preHandler: requireAnyRole }, async (req, reply) => {
+  app.patch('/agents/:id', { preHandler: requireAdmin }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as Partial<AgentProfile>;
     const existing = await agents.findById(id);
@@ -204,9 +211,9 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return updated;
   });
 
-  app.get('/rooms', { preHandler: requireAnyRole }, async () => rooms.all());
+  app.get('/rooms', async () => rooms.all());
 
-  app.post('/rooms', { preHandler: requireCEO }, async (req, reply) => {
+  app.post('/rooms', { preHandler: requireAdmin }, async (req, reply) => {
     const body = req.body as Partial<Room>;
     if (!body?.name || !body?.kind) return reply.code(400).send({ error: 'name and kind are required' });
     if (body.kind === 'pod' && !body.pod) return reply.code(400).send({ error: 'pod is required for pod room' });
@@ -221,7 +228,7 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return reply.code(201).send(room);
   });
 
-  app.get('/rooms/:id/messages', { preHandler: requireAnyRole }, async (req, reply) => {
+  app.get('/rooms/:id/messages', async (req, reply) => {
     const { id } = req.params as { id: string };
     const room = await rooms.findById(id);
     if (!room) return reply.code(404).send({ error: 'Room not found' });
@@ -229,7 +236,7 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return all.filter((m) => m.roomId === id);
   });
 
-  app.post('/rooms/:id/messages', { preHandler: requireAnyRole }, async (req, reply) => {
+  app.post('/rooms/:id/messages', { preHandler: requireAdmin }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as { body?: string };
     const room = await rooms.findById(id);
@@ -246,9 +253,9 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return reply.code(201).send(msg);
   });
 
-  app.get('/milestones', { preHandler: requireAnyRole }, async () => milestones.all());
+  app.get('/milestones', async () => milestones.all());
 
-  app.post('/milestones', { preHandler: requireAnyRole }, async (req, reply) => {
+  app.post('/milestones', { preHandler: requireAdmin }, async (req, reply) => {
     const body = req.body as Partial<Milestone>;
     if (!body?.title) return reply.code(400).send({ error: 'title is required' });
     const ms: Milestone = {

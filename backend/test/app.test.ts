@@ -4,24 +4,34 @@ import path from 'node:path';
 import os from 'node:os';
 import { buildApp } from '../src/app.js';
 
-const ceoHeaders = { 'x-role': 'CEO', 'x-user-id': 'ceo-1' };
-const govHeaders = { 'x-role': 'Governor', 'x-user-id': 'gov-1' };
+const ADMIN_TOKEN = 'test-admin-token-1234567890';
+const ceoHeaders = { 'x-role': 'CEO', 'x-user-id': 'ceo-1', authorization: `Bearer ${ADMIN_TOKEN}` };
+const govHeaders = { 'x-role': 'Governor', 'x-user-id': 'gov-1', authorization: `Bearer ${ADMIN_TOKEN}` };
 
 let dataDir: string;
 
 beforeEach(async () => {
   dataDir = await mkdtemp(path.join(os.tmpdir(), 'aetherboard-'));
+  process.env.ADMIN_TOKEN = ADMIN_TOKEN;
 });
 
 afterEach(async () => {
   await rm(dataDir, { recursive: true, force: true });
+  delete process.env.ADMIN_TOKEN;
 });
 
 describe('aetherboard backend', () => {
-  it('requires auth headers', async () => {
+  it('allows public reads but protects writes', async () => {
     const app = await buildApp({ dataDir });
-    const res = await app.inject({ method: 'GET', url: '/tasks' });
-    expect(res.statusCode).toBe(401);
+    const read = await app.inject({ method: 'GET', url: '/tasks' });
+    expect(read.statusCode).toBe(200);
+
+    const write = await app.inject({
+      method: 'POST',
+      url: '/tasks',
+      payload: { title: 'unauthorized create' },
+    });
+    expect(write.statusCode).toBe(401);
     await app.close();
   });
 
