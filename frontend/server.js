@@ -105,7 +105,8 @@ function handleMock(req, res) {
 }
 
 async function handleProxy(req, res) {
-  const target = new URL(req.url, BACKEND_URL);
+  const proxiedPath = req.url.startsWith('/api/') ? req.url.slice(4) : req.url;
+  const target = new URL(proxiedPath, BACKEND_URL);
   const body = await new Promise((resolve) => {
     const chunks = [];
     req.on('data', (c) => chunks.push(c));
