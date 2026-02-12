@@ -98,5 +98,6 @@ See **`spec.md` → Seeded Data (v0 Divine Import)**.
    - by owner
    - by room/pod
    - milestone timeline
+6. Use frontend admin write flow with bearer token input (session-only memory) while keeping read calls public
 
 That is enough for a real MVP used by an active agent org.

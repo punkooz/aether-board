@@ -29,12 +29,16 @@ h1 { margin: 0; font-size: 1.4rem; }
   border-bottom: 1px solid var(--line);
   flex-wrap: wrap;
 }
-input, button {
+input, button, select, textarea {
   background: #0b1220;
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px;
+}
+textarea {
+  min-height: 72px;
+  resize: vertical;
 }
 button { cursor: pointer; }
 button:hover { border-color: var(--accent); }
@@ -118,6 +122,20 @@ main { padding: 20px; }
 .status-ok { background: #22c55e; }
 .status-error { background: #ef4444; }
 .meta { color: var(--muted); font-size: 0.9rem; }
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.form-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.status-ok-border { border-color: #22c55e; }
+.status-error-border { border-color: #ef4444; }
 
 @media (max-width: 800px) {
   .split { grid-template-columns: 1fr; }

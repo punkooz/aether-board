@@ -10,6 +10,7 @@ Functional frontend MVP for AetherBoard under `projects/aetherboard/frontend`.
 - **Room feeds**
 - **Milestone updates**
 - **CEO review queue**
+- **Admin Writes** tab for protected write operations (task/agent/room/message/milestone mutations)
 
 ## Quick start
 
@@ -38,6 +39,13 @@ npm run start:mock
 ```
 
 This serves realistic mock data from the same API routes.
+
+## Auth behavior in frontend
+
+- Backend URL is persisted in `localStorage` (`aetherboard_api_base`).
+- Admin token is **not persisted** (memory-only, cleared on page reload or via "Clear").
+- **Read routes remain public** and are called without `Authorization`.
+- **Write routes use** `Authorization: Bearer <token>` and fail fast in the UI if token is missing.
 
 ## Backend API shape expected
 

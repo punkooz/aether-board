@@ -19,6 +19,12 @@
       <button id="saveApiBase">Save</button>
     </div>
     <div>
+      <label for="adminToken">Admin token</label>
+      <input id="adminToken" type="password" value="" placeholder="Bearer token (session-only)" />
+      <button id="clearAdminToken">Clear</button>
+      <span id="tokenStatus" class="meta">Not set</span>
+    </div>
+    <div>
       <button id="refreshAll">Refresh all</button>
       <span id="statusDot" class="status-dot"></span>
       <span id="statusText">Idle</span>
@@ -32,6 +38,7 @@
     <button data-tab="rooms">Room Feeds</button>
     <button data-tab="milestones">Milestones</button>
     <button data-tab="reviews">CEO Review Queue</button>
+    <button data-tab="admin">Admin Writes</button>
   </nav>
 
   <main>
@@ -78,6 +85,86 @@
     <section id="tab-reviews" class="tab">
       <h2>CEO Review Queue</h2>
       <ul id="reviewsList" class="list"></ul>
+    </section>
+
+    <section id="tab-admin" class="tab">
+      <h2>Admin Writes (Bearer protected)</h2>
+      <p class="meta">Read endpoints stay public. Only these write operations include Authorization: Bearer &lt;token&gt;.</p>
+      <div id="adminWriteStatus" class="panel">Idle</div>
+
+      <div class="admin-grid">
+        <form id="createTaskForm" class="panel form-block">
+          <h3>Create task</h3>
+          <input name="title" required placeholder="Title" />
+          <textarea name="description" placeholder="Description"></textarea>
+          <input name="assigneeAgentId" placeholder="Assignee agent id (optional)" />
+          <button type="submit">Create task</button>
+        </form>
+
+        <form id="updateTaskForm" class="panel form-block">
+          <h3>Update task</h3>
+          <input name="id" required placeholder="Task id" />
+          <input name="title" placeholder="New title (optional)" />
+          <textarea name="description" placeholder="New description (optional)"></textarea>
+          <input name="assigneeAgentId" placeholder="New assignee (optional)" />
+          <button type="submit">Patch task</button>
+        </form>
+
+        <form id="transitionTaskForm" class="panel form-block">
+          <h3>Transition task</h3>
+          <input name="id" required placeholder="Task id" />
+          <select name="to" required>
+            <option value="">To status...</option>
+            <option value="todo">todo</option>
+            <option value="in-progress">in-progress</option>
+            <option value="blocked">blocked</option>
+            <option value="review">review</option>
+            <option value="done">done</option>
+          </select>
+          <button type="submit">Transition</button>
+        </form>
+
+        <form id="commentTaskForm" class="panel form-block">
+          <h3>Add task comment</h3>
+          <input name="id" required placeholder="Task id" />
+          <textarea name="body" required placeholder="Comment"></textarea>
+          <button type="submit">Post comment</button>
+        </form>
+
+        <form id="createAgentForm" class="panel form-block">
+          <h3>Create agent</h3>
+          <input name="name" required placeholder="Name" />
+          <input name="role" required placeholder="Role" />
+          <input name="pod" placeholder="Pod (optional)" />
+          <button type="submit">Create agent</button>
+        </form>
+
+        <form id="createRoomForm" class="panel form-block">
+          <h3>Create room</h3>
+          <input name="name" required placeholder="Room name" />
+          <select name="kind" required>
+            <option value="">Kind...</option>
+            <option value="common">common</option>
+            <option value="pod">pod</option>
+          </select>
+          <input name="pod" placeholder="Pod (required for pod rooms)" />
+          <button type="submit">Create room</button>
+        </form>
+
+        <form id="roomMessageForm" class="panel form-block">
+          <h3>Post room message</h3>
+          <input name="id" required placeholder="Room id" />
+          <textarea name="body" required placeholder="Message"></textarea>
+          <button type="submit">Post message</button>
+        </form>
+
+        <form id="createMilestoneForm" class="panel form-block">
+          <h3>Create milestone</h3>
+          <input name="title" required placeholder="Title" />
+          <textarea name="detail" placeholder="Detail (optional)"></textarea>
+          <button type="submit">Create milestone</button>
+        </form>
+      </div>
     </section>
   </main>
 
