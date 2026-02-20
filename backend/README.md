@@ -21,21 +21,49 @@ npm run dev
 
 Server defaults to `http://localhost:3000`.
 
-## Auth model (security patch)
+## Auth model (F-001 remediation)
 
-- **Read endpoints** are public (`GET` routes).
-- **Write endpoints** require an admin bearer token.
+- **Read endpoints** are public (`GET` routes), except `/audits`.
+- Protected endpoints require a scoped bearer token: `Authorization: Bearer <tokenId>.<secret>`.
+- Secret verification uses `sha256` hash comparison (constant-time).
+- Each token has `expiresAt`, `scopes`, and `roleScopes`.
+- Revoked tokens are persisted in `data/revoked-tokens.json` and blocked on every request.
 
-Set env var:
+Set env vars:
 
-- `ADMIN_TOKEN` (required for write operations)
+- `ADMIN_TOKENS` (required JSON array of token configs)
+- `TRUSTED_PROXIES` (optional, comma-separated trusted proxy CIDRs/IPs or proxy-addr aliases like `loopback`)
+  - default: **not set** → `trustProxy=false` (safe fallback)
+  - example: `TRUSTED_PROXIES=127.0.0.1,10.0.0.0/8`
 
-For write requests send:
+Token config example:
 
-- `Authorization: Bearer <ADMIN_TOKEN>`
-- optional actor attribution headers:
-  - `x-role`: `CEO` or `Governor`
-  - `x-user-id`: user id for audit attribution
+```json
+[
+  {
+    "id": "core-write",
+    "secretHash": "<sha256(secret)>",
+    "expiresAt": "2099-01-01T00:00:00.000Z",
+    "scopes": ["write:*"],
+    "roleScopes": ["CEO", "Governor"]
+  }
+]
+```
+
+Optional actor attribution headers:
+
+- `x-role`: `CEO` or `Governor`
+- `x-user-id`: user id for audit attribution
+
+Token revocation endpoint:
+
+- `POST /auth/tokens/:id/revoke` (requires `auth:manage` scope)
+
+### Proxy/IP trust and rate-limit attribution
+
+- Backend no longer trusts all proxy headers by default.
+- `request.ip` and write rate-limits are attributed to the socket peer unless `TRUSTED_PROXIES` is explicitly configured.
+- This prevents unauthenticated clients from spoofing `X-Forwarded-For` to evade per-IP write limits.
 
 ## Scripts
 
