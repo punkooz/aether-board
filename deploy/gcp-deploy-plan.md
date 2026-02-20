@@ -97,20 +97,27 @@ gcloud run deploy aetherboard-backend \
   --min-instances 0 \
   --max-instances 3 \
   --concurrency 80 \
-  --timeout 30
+  --timeout 30 \
+  --set-env-vars "TRUSTED_PROXIES=127.0.0.1"
 ```
+
+`ADMIN_TOKEN` should be provided via Secret Manager binding to an env var at deploy time.
+
 
 ---
 
 ## 5) Secrets Plan
 
-Likely initial secrets:
+Initial backend env/secrets:
+- `ADMIN_TOKEN` (**required**, secret)
+- `TRUSTED_PROXIES` (optional, non-secret; explicit list only, e.g. `127.0.0.1,10.0.0.0/8`)
 - `AETHERBOARD_API_KEY` (if used)
 - any external integration key
 
 Rules:
-- store in Secret Manager
-- mount via Cloud Run secret env refs
+- store secrets in Secret Manager
+- mount secrets via Cloud Run secret env refs
+- pass non-secret runtime config as normal env vars
 - do not commit `.env` production secrets
 
 ---

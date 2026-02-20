@@ -1,12 +1,15 @@
 import Fastify, { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import path from 'node:path';
+import { isIP } from 'node:net';
 import { JsonStore } from './lib/store.js';
+import { buildRequireAuth, parseAdminTokensFromEnv } from './lib/auth.js';
 import { newId, nowIso } from './lib/utils.js';
-import type { AgentProfile, AuditEvent, Comment, Message, Milestone, Role, Room, Task, TaskStatus } from './types.js';
+import type { AgentProfile, AuditEvent, Comment, Message, Milestone, RevokedToken, Role, Room, Task, TaskStatus } from './types.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
     actor?: { id: string; role: Role };
+    auth?: { tokenId: string; scopes: string[]; roleScopes: Role[] };
   }
 }
 
@@ -18,33 +21,6 @@ const statusTransitions: Record<TaskStatus, TaskStatus[]> = {
   'done': [],
 };
 
-const setActor = (request: FastifyRequest) => {
-  const userId = request.headers['x-user-id'];
-  const role = request.headers['x-role'];
-  const id = typeof userId === 'string' && userId.length > 0 ? userId : 'system';
-  const parsedRole: Role = role === 'Governor' ? 'Governor' : 'CEO';
-  request.actor = { id, role: parsedRole };
-};
-
-const requireAdmin = async (request: FastifyRequest, reply: FastifyReply) => {
-  setActor(request);
-  const auth = request.headers.authorization;
-  const expected = process.env.ADMIN_TOKEN;
-
-  if (!expected || expected.length < 20) {
-    return reply.code(503).send({ error: 'Admin mode unavailable: ADMIN_TOKEN not configured.' });
-  }
-
-  if (!auth || !auth.startsWith('Bearer ')) {
-    return reply.code(401).send({ error: 'Unauthorized. Bearer token required.' });
-  }
-
-  const provided = auth.slice('Bearer '.length).trim();
-  if (provided !== expected) {
-    return reply.code(403).send({ error: 'Forbidden. Invalid admin token.' });
-  }
-};
-
 const cleanText = (value: unknown, field: string, max = 500) => {
   if (typeof value !== 'string') throw new Error(`${field} must be a string`);
   const v = value.trim();
@@ -53,11 +29,63 @@ const cleanText = (value: unknown, field: string, max = 500) => {
   return v;
 };
 
+const isValidCidr = (value: string): boolean => {
+  const parts = value.split('/');
+  if (parts.length !== 2) return false;
+  const [ip, rawPrefix] = parts;
+  const prefix = Number(rawPrefix);
+  if (!Number.isInteger(prefix)) return false;
+
+  const version = isIP(ip);
+  if (version === 4) return prefix >= 0 && prefix <= 32;
+  if (version === 6) return prefix >= 0 && prefix <= 128;
+  return false;
+};
+
+const isAllowedTrustProxyToken = (value: string): boolean => {
+  const lower = value.toLowerCase();
+  if (lower === 'loopback' || lower === 'linklocal' || lower === 'uniquelocal') return true;
+  if (isIP(value) !== 0) return true;
+  if (isValidCidr(value)) return true;
+  return false;
+};
+
+const parseTrustedProxies = (raw: string | undefined): string[] | false => {
+  if (!raw) return false;
+
+  const normalized = raw.trim();
+  if (!normalized) return false;
+  if (['false', 'off', 'none', '0'].includes(normalized.toLowerCase())) return false;
+
+  const tokens = normalized
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  if (tokens.length === 0) return false;
+
+  const trusted = tokens.filter(isAllowedTrustProxyToken);
+
+  if (trusted.length === 0) {
+    // eslint-disable-next-line no-console
+    console.warn('[security] TRUSTED_PROXIES is set but has no valid entries; falling back to trustProxy=false');
+    return false;
+  }
+
+  if (trusted.length !== tokens.length) {
+    // eslint-disable-next-line no-console
+    console.warn('[security] TRUSTED_PROXIES contains invalid entries; only valid trusted proxy values are used');
+  }
+
+  return trusted;
+};
+
 const createRateLimit = (max: number, windowMs: number) => {
   const hits = new Map<string, { count: number; resetAt: number }>();
 
   return async (request: FastifyRequest, reply: FastifyReply) => {
-    const key = `${request.ip}:${request.url}`;
+    const routeId = request.routeOptions.url ?? request.url.split('?')[0] ?? request.url;
+    const key = `${request.ip}:${request.method}:${routeId}`;
     const now = Date.now();
     const existing = hits.get(key);
 
@@ -76,8 +104,9 @@ const createRateLimit = (max: number, windowMs: number) => {
 
 const writeRateLimit = createRateLimit(80, 60_000);
 
-export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false, trustProxy: true });
+export async function buildApp(opts?: { dataDir?: string; trustedProxies?: string[] | false }): Promise<FastifyInstance> {
+  const trustedProxies = opts?.trustedProxies ?? parseTrustedProxies(process.env.TRUSTED_PROXIES);
+  const app = Fastify({ logger: false, trustProxy: trustedProxies });
   const dataDir = opts?.dataDir ?? path.join(process.cwd(), 'data');
 
   const tasks = new JsonStore<Task>(path.join(dataDir, 'tasks.json'));
@@ -87,6 +116,13 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
   const messages = new JsonStore<Message>(path.join(dataDir, 'messages.json'));
   const milestones = new JsonStore<Milestone>(path.join(dataDir, 'milestones.json'));
   const audits = new JsonStore<AuditEvent>(path.join(dataDir, 'audits.json'));
+  const revokedTokens = new JsonStore<RevokedToken>(path.join(dataDir, 'revoked-tokens.json'));
+
+  const adminTokens = parseAdminTokensFromEnv();
+  const requireScope = buildRequireAuth(adminTokens, async () => {
+    const revoked = await revokedTokens.all();
+    return revoked.map((entry) => entry.tokenId);
+  });
 
   const writeAudit = async (request: FastifyRequest, action: string, resourceType: string, resourceId?: string) => {
     if (!request.actor) return;
@@ -109,6 +145,7 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     messages.ensure(),
     milestones.ensure(),
     audits.ensure(),
+    revokedTokens.ensure(),
   ]);
 
   await rooms.ensure([{ id: 'common', kind: 'common', name: 'Common Room', createdAt: nowIso() }]);
@@ -121,7 +158,7 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return status ? all.filter((t) => t.status === status) : all;
   });
 
-  app.post('/tasks', { preHandler: [writeRateLimit, requireAdmin] }, async (req, reply) => {
+  app.post('/tasks', { preHandler: [writeRateLimit, requireScope('write:core')] }, async (req, reply) => {
     try {
       const body = (req.body ?? {}) as Partial<Task>;
       const title = cleanText(body.title, 'title', 120);
@@ -152,7 +189,7 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return task;
   });
 
-  app.patch('/tasks/:id', { preHandler: [writeRateLimit, requireAdmin] }, async (req, reply) => {
+  app.patch('/tasks/:id', { preHandler: [writeRateLimit, requireScope('write:core')] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = (req.body ?? {}) as Partial<Task>;
     const existing = await tasks.findById(id);
@@ -168,7 +205,7 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return updated;
   });
 
-  app.delete('/tasks/:id', { preHandler: [writeRateLimit, requireAdmin] }, async (req, reply) => {
+  app.delete('/tasks/:id', { preHandler: [writeRateLimit, requireScope('write:core')] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const ok = await tasks.delete(id);
     if (!ok) return reply.code(404).send({ error: 'Task not found' });
@@ -176,7 +213,7 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return reply.code(204).send();
   });
 
-  app.post('/tasks/:id/transition', { preHandler: [writeRateLimit, requireAdmin] }, async (req, reply) => {
+  app.post('/tasks/:id/transition', { preHandler: [writeRateLimit, requireScope('write:core')] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as { to?: TaskStatus };
     if (!body?.to) return reply.code(400).send({ error: 'to status is required' });
@@ -201,7 +238,7 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return all.filter((c) => c.taskId === id);
   });
 
-  app.post('/tasks/:id/comments', { preHandler: [writeRateLimit, requireAdmin] }, async (req, reply) => {
+  app.post('/tasks/:id/comments', { preHandler: [writeRateLimit, requireScope('write:core')] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as { body?: string };
     const task = await tasks.findById(id);
@@ -222,7 +259,7 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
 
   app.get('/agents', async () => agents.all());
 
-  app.post('/agents', { preHandler: [writeRateLimit, requireAdmin] }, async (req, reply) => {
+  app.post('/agents', { preHandler: [writeRateLimit, requireScope('write:core')] }, async (req, reply) => {
     const body = req.body as Partial<AgentProfile>;
     if (!body?.name || !body?.role) return reply.code(400).send({ error: 'name and role are required' });
     const agent: AgentProfile = {
@@ -246,7 +283,7 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return agent;
   });
 
-  app.patch('/agents/:id', { preHandler: [writeRateLimit, requireAdmin] }, async (req, reply) => {
+  app.patch('/agents/:id', { preHandler: [writeRateLimit, requireScope('write:core')] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as Partial<AgentProfile>;
     const existing = await agents.findById(id);
@@ -270,7 +307,7 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
 
   app.get('/rooms', async () => rooms.all());
 
-  app.post('/rooms', { preHandler: [writeRateLimit, requireAdmin] }, async (req, reply) => {
+  app.post('/rooms', { preHandler: [writeRateLimit, requireScope('write:core')] }, async (req, reply) => {
     const body = req.body as Partial<Room>;
     if (!body?.name || !body?.kind) return reply.code(400).send({ error: 'name and kind are required' });
     if (body.kind === 'pod' && !body.pod) return reply.code(400).send({ error: 'pod is required for pod room' });
@@ -294,7 +331,7 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return all.filter((m) => m.roomId === id);
   });
 
-  app.post('/rooms/:id/messages', { preHandler: [writeRateLimit, requireAdmin] }, async (req, reply) => {
+  app.post('/rooms/:id/messages', { preHandler: [writeRateLimit, requireScope('write:core')] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = req.body as { body?: string };
     const room = await rooms.findById(id);
@@ -314,7 +351,7 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
 
   app.get('/milestones', async () => milestones.all());
 
-  app.post('/milestones', { preHandler: [writeRateLimit, requireAdmin] }, async (req, reply) => {
+  app.post('/milestones', { preHandler: [writeRateLimit, requireScope('write:core')] }, async (req, reply) => {
     const body = req.body as Partial<Milestone>;
     if (!body?.title) return reply.code(400).send({ error: 'title is required' });
     const ms: Milestone = {
@@ -329,7 +366,27 @@ export async function buildApp(opts?: { dataDir?: string }): Promise<FastifyInst
     return reply.code(201).send(ms);
   });
 
-  app.get('/audits', { preHandler: requireAdmin }, async () => audits.all());
+  app.post('/auth/tokens/:id/revoke', { preHandler: [writeRateLimit, requireScope('auth:manage')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { reason?: string };
+
+    const existing = await revokedTokens.all();
+    if (existing.some((entry) => entry.tokenId === id)) {
+      return reply.code(409).send({ error: 'Token already revoked.' });
+    }
+
+    await revokedTokens.insert({
+      id: newId('rvk'),
+      tokenId: id,
+      revokedAt: nowIso(),
+      revokedBy: req.actor!.id,
+      reason: typeof body.reason === 'string' ? cleanText(body.reason, 'reason', 200) : undefined,
+    });
+    await writeAudit(req, 'revoke', 'auth-token', id);
+    return reply.code(201).send({ tokenId: id, revoked: true });
+  });
+
+  app.get('/audits', { preHandler: requireScope('read:audit') }, async () => audits.all());
 
   return app;
 }

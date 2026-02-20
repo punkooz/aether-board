@@ -65,3 +65,11 @@ export interface AuditEvent {
   createdAt: string;
   ip?: string;
 }
+
+export interface RevokedToken {
+  id: string;
+  tokenId: string;
+  revokedAt: string;
+  revokedBy: string;
+  reason?: string;
+}
