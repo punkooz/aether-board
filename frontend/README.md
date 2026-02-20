@@ -77,3 +77,10 @@ npm run screenshots
 ```
 
 Output PNGs are written to `projects/aetherboard/frontend/screenshots/`.
+
+## Go-live alignment checklist (2026-02-20)
+
+- Verify backend base URL points to hardened backend endpoint.
+- Confirm admin writes require scoped bearer token (`<tokenId>.<secret>`).
+- Confirm unauthenticated read routes work and unauthenticated write routes fail.
+- Confirm role header attribution (`x-role`, `x-user-id`) is sent for write/audit attribution when available.
